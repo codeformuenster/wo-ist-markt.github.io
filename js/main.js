@@ -8,7 +8,7 @@ var ATTRIBUTION = 'Map data &copy; <a href="http://openstreetmap.org">OpenStreet
                   'contributors, <a href="http://creativecommons.org/licenses/by-sa/2.0/">' +
                   'CC-BY-SA</a>. Tiles &copy; <a href="http://cartodb.com/attributions">' +
                   'CartoDB</a>';
-var DEFAULT_CITY = "karlsruhe";
+var DEFAULT_CITY_ID = "karlsruhe";
 var CITY_LIST_API_URL = 'https://api.github.com/repos/wo-ist-markt/' +
                         'wo-ist-markt.github.io/contents/cities';
 
@@ -256,13 +256,12 @@ function initMarker(feature) {
 
 
 /*
- * Returns the city name when present in the hash of the current URI;
- * otherwise the default city name;
+ * Returns the city ID from the hash of the current URI.
  */
-function getCityName() {
+function getHashCity() {
     var hash = decodeURIComponent(window.location.hash);
     if (hash === undefined || hash === "") {
-        return DEFAULT_CITY;
+        return '';
     } else {
         hash = hash.toLowerCase();
         return hash.substring(1, hash.length);
@@ -272,15 +271,26 @@ function getCityName() {
 
 /*
  * Updates the URL hash in the browser.
+ *
+ * `cityID` is the new city's ID. If `newHistoryState` is true then a new
+ * entry in the browser's history is created for the change. Otherwise the
+ * current history entry is replaced.
  */
-function updateUrlHash(cityName) {
-    if (cityName === undefined) {
-        throw "City name is undefined.";
-    }
-    if (history.pushState) {
-        history.pushState(null, null, "#" + cityName);
+function updateUrlHash(cityID, newHistoryState) {
+    var hash = '#' + cityID;
+    if (newHistoryState) {
+        if (history.pushState) {
+            history.pushState(null, null, "#" + cityID);
+        } else {
+            window.location.hash = cityID;
+        }
     } else {
-        window.location.hash = cityName;
+        if (history.replaceState) {
+            history.replaceState(null, null, hash);
+        } else {
+            // http://stackoverflow.com/a/6945614/857390
+            window.location.replace(('' + window.location).split('#')[0] + hash);
+        }
     }
 }
 
@@ -317,10 +327,13 @@ function cityIdToLabel(s) {
 /*
  * Set the current city.
  *
- * `city` is the city ID.
+ * `cityID` is the new city's ID. If `newHistoryState` is true then a new
+ * entry in the browser's history is created for the change. Otherwise the
+ * current history entry is replaced.
  */
-function setCity(city) {
-    var filename = 'cities/' + city + '.json';
+function setCity(cityID, newHistoryState) {
+    cityID = cityID || DEFAULT_CITY_ID;
+    var filename = 'cities/' + cityID + '.json';
     $.getJSON(filename, function(json) {
         positionMap(json.metadata.map_initialization);
         updateLegendDataSource(json.metadata.data_source);
@@ -329,16 +342,16 @@ function setCity(city) {
         map.addLayer(unclassifiedGroup);
         map.addLayer(nowGroup);
         updateLayers();
-        updateUrlHash(city);
-        document.title = 'Wo ist Markt in ' + cityIdToLabel(city) + '?';
+        updateUrlHash(cityID, newHistoryState);
+        document.title = 'Wo ist Markt in ' + cityIdToLabel(cityID) + '?';
         // Update drop down but avoid recursion
-        $('#dropDownCitySelection').val(city).trigger('change', true);
+        $('#dropDownCitySelection').val(cityID).trigger('change', true);
     }).fail(function() {
         console.log('Failure loading "' + filename + '".');
-        if (city !== DEFAULT_CITY) {
-            console.log('Loading default city "' + DEFAULT_CITY +
+        if (cityID !== DEFAULT_CITY_ID) {
+            console.log('Loading default city "' + DEFAULT_CITY_ID +
                         '" instead.');
-            setCity(DEFAULT_CITY);
+            setCity(DEFAULT_CITY_ID, newHistoryState);
         }
     });
 }
@@ -367,7 +380,8 @@ function loadCityIDs() {
 
 
 $(window).on('hashchange',function() {
-    setCity(getCityName());
+    // Don't create a new history state, because the hash change already did
+    setCity(getHashCity(), false);
 });
 
 
@@ -397,7 +411,7 @@ $(document).ready(function() {
             // set when the change event is triggered from within setCity so
             // that we can avoid a recursion in that case.
             if (!keepCity) {
-                setCity(dropDownCitySelection.val());
+                setCity(dropDownCitySelection.val(), true);
             }
         }).on('select2:close', function() {
             $(':focus').blur();
@@ -406,7 +420,7 @@ $(document).ready(function() {
         dropDownCitySelection.select2('open');
         dropDownCitySelection.select2('close');
 
-        setCity(getCityName());
+        setCity(getHashCity(), false);
     });
 
     // Stop map movement by mouse events in legend.
